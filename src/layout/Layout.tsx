@@ -19,7 +19,7 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import CompareArrowsOutlinedIcon from '@mui/icons-material/CompareArrowsOutlined'
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
-import CloudDoneOutlinedIcon from '@mui/icons-material/CloudDoneOutlined'
+import SyncCenter, { SyncStatus } from '../components/SyncCenter'
 
 const nav = [
   { to: '/', label: '开发总览', icon: <DashboardOutlinedIcon /> },
@@ -61,18 +61,13 @@ export default function Layout() {
           </ListItemButton>
         ))}
       </List>
-      <Box sx={{ mx: 1.5, mt: 'auto', p: 1.5, border: '1px solid rgba(255,255,255,.1)', borderRadius: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
-          <CloudDoneOutlinedIcon sx={{ fontSize: 16, color: '#74b79d' }} />
-          <Typography fontSize={11}>草稿已实时保存</Typography>
-        </Box>
-        <Typography color="#8f9a98" fontSize={10} mt={0.8}>最后同步 16:42 · 3 位协作者</Typography>
-      </Box>
+      <SyncStatus />
     </Box>
   )
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <SyncCenter />
       <AppBar position="fixed" color="transparent" elevation={0} sx={{ display: { md: 'none' }, bgcolor: '#262a2b' }}>
         <Toolbar sx={{ minHeight: 52 }}>
           <IconButton color="inherit" onClick={() => setMobileOpen(true)}><MenuIcon /></IconButton>

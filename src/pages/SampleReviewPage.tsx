@@ -27,7 +27,17 @@ import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined'
 import AddLocationAltOutlinedIcon from '@mui/icons-material/AddLocationAltOutlined'
 import PhotoCameraBackOutlinedIcon from '@mui/icons-material/PhotoCameraBackOutlined'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
-import { decideProposal, saveDraft, setRounds, toggleAnnotation } from '../features/developmentSlice'
+import {
+  addAnnotationLocal,
+  decideProposalLocal,
+  saveDraft,
+  setRounds,
+  toggleAnnotation,
+} from '../features/developmentSlice'
+import { enqueueOp, selectConflictCount, selectPendingCount } from '../features/offlineSlice'
+import { uuid } from '../app/id'
+import { store } from '../app/store'
+import { flushQueue } from '../features/syncEngine'
 
 const rounds = ['第一轮', '第二轮', '第三轮'] as const
 
@@ -35,6 +45,13 @@ export default function SampleReviewPage() {
   const dispatch = useAppDispatch()
   const state = useAppSelector((root) => root.development)
   const sample = state.samples.find((item) => item.id === state.selectedId) ?? state.samples[0]
+  const online = useAppSelector((root) => root.offline.online)
+  const pendingCount = useAppSelector((root) => selectPendingCount(root, sample.id))
+  const conflictCount = useAppSelector((root) => selectConflictCount(root, sample.id))
+  const queue = useAppSelector((root) => root.offline.queue)
+  const conflicts = useAppSelector((root) => root.offline.conflicts)
+  const pendingOpIds = new Set(queue.map((op) => op.opId))
+  const conflictOpIds = new Set(conflicts.map((item) => item.opId))
   const [annotationOpen, setAnnotationOpen] = useState(false)
   const [decisionDialog, setDecisionDialog] = useState<string | null>(null)
   const [decisionReason, setDecisionReason] = useState('')
@@ -67,7 +84,25 @@ export default function SampleReviewPage() {
 
   const submitDecision = (decision: '已采纳' | '未采纳') => {
     if (!decisionDialog || !decisionReason.trim()) return
-    dispatch(decideProposal({ proposalId: decisionDialog, decision, reason: decisionReason, decidedAt: new Date().toLocaleString('zh-CN') }))
+    const decisionPayload = { proposalId: decisionDialog, decision, reason: decisionReason }
+    dispatch(
+      decideProposalLocal({
+        sampleId: sample.id,
+        decision: { ...decisionPayload, decidedAt: new Date().toLocaleString('zh-CN') },
+      }),
+    )
+    const opId = uuid()
+    dispatch(
+      enqueueOp({
+        opId,
+        sampleId: sample.id,
+        type: 'decision',
+        payload: { decision: decisionPayload },
+        description: `方案决定：${decisionDialog} ${decision}`,
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+      }),
+    )
     setDecisionDialog(null)
     setDecisionReason('')
   }
@@ -87,6 +122,21 @@ export default function SampleReviewPage() {
       </Box>
 
       {state.locked && <Alert severity="success" sx={{ mb: 1.5 }}>该轮次已审核锁定。解锁后才能新增批注或采纳方案。</Alert>}
+      {(pendingCount > 0 || conflictCount > 0) && (
+        <Alert
+          severity={conflictCount > 0 ? 'warning' : 'info'}
+          sx={{ mb: 1.5 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => flushQueue(store.dispatch, store.getState)} disabled={!online}>
+              立即同步
+            </Button>
+          }
+        >
+          {conflictCount > 0
+            ? `${conflictCount} 项批注/决定与服务器冲突待处理，本地内容已保留。`
+            : `${pendingCount} 项批注/决定待同步，联网后自动补传，刷新不丢失。`}
+        </Alert>
+      )}
       {sample.annotations.some((item) => item.status === '待处理') && (
         <Alert severity="warning" sx={{ mb: 1.5 }}>
           当前仍有 {sample.annotations.filter((item) => item.status === '待处理').length} 项待处理批注，审核锁定前必须逐项关闭。
@@ -221,7 +271,14 @@ export default function SampleReviewPage() {
             {sample.annotations.map((annotation) => (
               <Box key={annotation.id} sx={{ p: 1.2, borderLeft: `3px solid ${annotation.status === '待处理' ? '#cf6236' : '#397c69'}`, bgcolor: '#f8f7f4', borderRadius: 1 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography fontWeight={800} fontSize={12}>{annotation.part} · {annotation.author}</Typography>
+                  <Stack direction="row" spacing={0.6} alignItems="center">
+                    <Typography fontWeight={800} fontSize={12}>{annotation.part} · {annotation.author}</Typography>
+                    {annotation.clientOpId && pendingOpIds.has(annotation.clientOpId) && (
+                      conflictOpIds.has(annotation.clientOpId)
+                        ? <Chip size="small" label="冲突" color="error" sx={{ height: 18, fontSize: 10 }} />
+                        : <Chip size="small" label="待同步" color="info" sx={{ height: 18, fontSize: 10 }} />
+                    )}
+                  </Stack>
                   <Button size="small" onClick={() => dispatch(toggleAnnotation(annotation.id))}>查看</Button>
                 </Stack>
                 <Typography color="text.secondary" fontSize={11} mt={0.4}>{annotation.content}</Typography>
@@ -269,7 +326,38 @@ export default function SampleReviewPage() {
             variant="contained"
             disabled={!annotationDraft.part.trim() || !annotationDraft.content.trim()}
             onClick={() => {
-              sample.annotations.push({ id: `AN-${Date.now()}`, author: '当前用户', status: '待处理', ...annotationDraft })
+              const opId = uuid()
+              dispatch(
+                addAnnotationLocal({
+                  sampleId: sample.id,
+                  annotation: {
+                    id: `AN-${opId.slice(0, 8).toUpperCase()}`,
+                    author: '当前用户',
+                    status: '待处理',
+                    clientOpId: opId,
+                    ...annotationDraft,
+                  },
+                }),
+              )
+              dispatch(
+                enqueueOp({
+                  opId,
+                  sampleId: sample.id,
+                  type: 'annotation',
+                  payload: {
+                    annotation: {
+                      clientOpId: opId,
+                      x: annotationDraft.x,
+                      y: annotationDraft.y,
+                      part: annotationDraft.part,
+                      content: annotationDraft.content,
+                    },
+                  },
+                  description: `批注：${annotationDraft.part} ${annotationDraft.content.slice(0, 12)}`,
+                  createdAt: new Date().toISOString(),
+                  status: 'pending',
+                }),
+              )
               setAnnotationDraft({ x: 50, y: 42, part: '版型', content: '' })
               setAnnotationOpen(false)
             }}

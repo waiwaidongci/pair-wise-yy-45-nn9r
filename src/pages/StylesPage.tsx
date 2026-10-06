@@ -3,11 +3,13 @@ import AddPhotoAlternateOutlinedIcon from '@mui/icons-material/AddPhotoAlternate
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { selectSample } from '../features/developmentSlice'
+import { selectReadSample } from '../features/offlineSlice'
 
 export default function StylesPage() {
   const dispatch = useAppDispatch()
   const { samples, selectedId } = useAppSelector((state) => state.development)
-  const selected = samples.find((item) => item.id === selectedId) ?? samples[0]
+  const selected = useAppSelector((root) => selectReadSample(root, selectedId))
+  const snapshotCount = useAppSelector((root) => root.offline.snapshots[selectedId]?.length ?? 0)
 
   return (
     <Box className="page">
@@ -63,6 +65,7 @@ export default function StylesPage() {
             <Stack direction="row" spacing={1} alignItems="center">
               <Chip label={selected.category} />
               <Chip label={selected.status} color={selected.status === '已锁定' ? 'success' : 'warning'} />
+              {snapshotCount > 0 && <Chip label={`${snapshotCount} 个锁定快照`} color="info" />}
             </Stack>
           </Box>
           <Box sx={{ p: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>

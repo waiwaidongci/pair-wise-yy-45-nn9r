@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit'
 import { seedSamples } from '../api/seed'
-import type { Sample } from '../api/types'
+import type { Annotation, ReviewDecision, Sample } from '../api/types'
 
 type Decision = { proposalId: string; decision: '已采纳' | '未采纳'; reason: string; decidedAt: string }
 
@@ -61,6 +61,30 @@ const slice = createSlice({
       const annotation = sample?.annotations.find((item) => item.id === action.payload.annotationId)
       if (annotation) annotation.status = annotation.status === '待处理' ? '已解决' : '待处理'
     },
+    addAnnotationLocal(state, action: PayloadAction<{ sampleId: string; annotation: Annotation }>) {
+      const sample = state.samples.find((item) => item.id === action.payload.sampleId)
+      if (sample && !state.locked) sample.annotations.push(action.payload.annotation)
+    },
+    decideProposalLocal(state, action: PayloadAction<{ sampleId: string; decision: Decision }>) {
+      const { sampleId, decision } = action.payload
+      const sample = state.samples.find((item) => item.id === sampleId)
+      if (!sample || state.locked) return
+      state.decisions.push(decision)
+      const proposal = sample.proposals.find((item) => item.id === decision.proposalId)
+      if (proposal) proposal.status = decision.decision
+    },
+    remoteSampleUpdated(state, action: PayloadAction<Sample>) {
+      const index = state.samples.findIndex((item) => item.id === action.payload.id)
+      if (index >= 0) {
+        state.samples[index] = action.payload
+      } else {
+        state.samples.push(action.payload)
+      }
+    },
+    syncLocked(state) {
+      const selected = state.samples.find((item) => item.id === state.selectedId)
+      state.locked = selected?.status === '已锁定'
+    },
     lockReview(state) {
       const sample = state.samples.find((item) => item.id === state.selectedId)
       if (!sample) return
@@ -85,6 +109,10 @@ export const {
   saveDraft,
   toggleAnnotation,
   resolveAnnotation,
+  addAnnotationLocal,
+  decideProposalLocal,
+  remoteSampleUpdated,
+  syncLocked,
   lockReview,
   unlockReview,
 } = slice.actions

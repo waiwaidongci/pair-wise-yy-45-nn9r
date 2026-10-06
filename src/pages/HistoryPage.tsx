@@ -15,17 +15,28 @@ import {
 import LockOutlineIcon from '@mui/icons-material/LockOutlined'
 import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined'
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
+import PhotoOutlinedIcon from '@mui/icons-material/PhotoOutlined'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
-import { lockReview, unlockReview } from '../features/developmentSlice'
+import { store } from '../app/store'
+import { lockSample, unlockSample } from '../features/syncEngine'
+import { selectPendingCount, selectReadSample, type Snapshot } from '../features/offlineSlice'
 
 export default function HistoryPage() {
   const dispatch = useAppDispatch()
   const state = useAppSelector((root) => root.development)
-  const sample = state.samples.find((item) => item.id === state.selectedId) ?? state.samples[0]
+  const sample = useAppSelector((root) => selectReadSample(root, root.development.selectedId))
+  const queuePending = useAppSelector((root) => selectPendingCount(root, sample.id))
+  const snapshots = useAppSelector((root) => root.offline.snapshots[sample.id] ?? [])
+  const online = useAppSelector((root) => root.offline.online)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [warnOpen, setWarnOpen] = useState(false)
+  const [note, setNote] = useState(`确认 ${state.roundB} 版型与工艺资料完整，可进入下一阶段。`)
+  const [viewing, setViewing] = useState<Snapshot | null>(null)
+
   const pendingAnnotations = sample.annotations.filter((item) => item.status === '待处理').length
   const pendingProposals = sample.proposals.filter((item) => item.status === '待决定').length
-  const canLock = pendingAnnotations === 0 && pendingProposals === 0
+  const canLock = pendingAnnotations === 0 && pendingProposals === 0 && queuePending === 0
 
   const events = [
     ...sample.annotations.map((item) => ({ date: '2026-09-27', title: `${item.part}批注`, owner: item.author, detail: item.content, status: item.status })),
@@ -35,30 +46,73 @@ export default function HistoryPage() {
     { date: '2026-09-22', title: '第二轮试穿评审', owner: '陈曼', detail: '完成动态试穿记录，肩袖活动量改善。', status: '已归档' },
   ]
 
+  const handleLockClick = () => {
+    if (queuePending > 0) {
+      setWarnOpen(true)
+      return
+    }
+    setConfirmOpen(true)
+  }
+
+  const handleConfirmLock = async () => {
+    const result = await lockSample(store.dispatch, store.getState, sample.id, note)
+    if (result === 'ok' || result === 'stale') setConfirmOpen(false)
+  }
+
+  const handleUnlock = async () => {
+    await unlockSample(store.dispatch, store.getState, sample.id)
+  }
+
+  const handleExport = () => {
+    const snapshot = snapshots[snapshots.length - 1]
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      sample: { id: sample.id, styleCode: sample.styleCode, styleName: sample.styleName, status: sample.status },
+      snapshot: snapshot ? { id: snapshot.id, version: snapshot.version, lockedAt: snapshot.lockedAt, note: snapshot.note } : null,
+      data: snapshot ? snapshot.data : sample,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `修订快照_${sample.styleCode}_${snapshot ? snapshot.id : '未锁定'}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <Box className="page">
       <Box className="page-head">
         <Box>
           <Typography className="eyebrow">AUDIT TRAIL / 修订历史</Typography>
           <Typography component="h1" fontWeight={800}>{sample.styleCode} · 审核与锁定</Typography>
-          <Typography color="text.secondary">每次尺寸调整、批注和替代方案均保留时间、责任人与决定理由。</Typography>
+          <Typography color="text.secondary">每次尺寸调整、批注和替代方案均保留时间、责任人与决定理由；锁定后总览、历史与导出读同一快照。</Typography>
         </Box>
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined">导出修订记录</Button>
-          {state.locked ? (
-            <Button variant="outlined" startIcon={<LockOpenOutlinedIcon />} onClick={() => dispatch(unlockReview())}>解锁修订</Button>
+          <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={handleExport}>导出修订记录</Button>
+          {sample.status === '已锁定' ? (
+            <Button variant="outlined" startIcon={<LockOpenOutlinedIcon />} onClick={handleUnlock} disabled={!online}>解锁修订</Button>
           ) : (
-            <Button variant="contained" startIcon={<LockOutlineIcon />} onClick={() => setConfirmOpen(true)} disabled={!canLock}>审核锁定</Button>
+            <Button variant="contained" startIcon={<LockOutlineIcon />} onClick={handleLockClick} disabled={!canLock}>审核锁定</Button>
           )}
         </Stack>
       </Box>
 
-      {!canLock && !state.locked && (
+      {queuePending > 0 && sample.status !== '已锁定' && (
+        <Alert severity="info" sx={{ mb: 1.5 }}>
+          有 {queuePending} 项批注/决定待同步，待处理队列清空后才能锁定。
+        </Alert>
+      )}
+      {!canLock && sample.status !== '已锁定' && queuePending === 0 && (
         <Alert severity="warning" sx={{ mb: 1.5 }}>
           审核前需处理 {pendingAnnotations} 项待处理批注和 {pendingProposals} 项待决定改版方案。
         </Alert>
       )}
-      {state.locked && <Alert severity="success" sx={{ mb: 1.5 }}>当前轮次已锁定，只能查看历史。解锁后将新增一个修订分支。</Alert>}
+      {sample.status === '已锁定' && (
+        <Alert severity="success" sx={{ mb: 1.5 }}>
+          当前轮次已锁定，总览、历史与导出均读取同一快照。解锁后原快照仍可在此查看。
+        </Alert>
+      )}
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0,1fr) 310px' }, gap: 1.5 }}>
         <Box className="panel" sx={{ p: 2 }}>
@@ -84,13 +138,11 @@ export default function HistoryPage() {
           </Box>
         </Box>
 
-        <Box className="panel" sx={{ alignSelf: 'start' }}>
-          <Box sx={{ p: 1.6, borderBottom: '1px solid #ece9e4' }}>
-            <Typography fontWeight={800}>轮次摘要</Typography>
-          </Box>
-          <Stack spacing={1.5} p={1.6}>
+        <Stack spacing={1.5}>
+          <Box className="panel" sx={{ p: 1.6 }}>
+            <Typography fontWeight={800} mb={1}>轮次摘要</Typography>
             {(['第一轮', '第二轮', '第三轮'] as const).map((round, index) => (
-              <Box key={round} sx={{ p: 1.3, border: '1px solid #e4e1dc', borderRadius: 1, bgcolor: round === state.roundB ? '#edf5f2' : '#fff' }}>
+              <Box key={round} sx={{ p: 1.3, border: '1px solid #e4e1dc', borderRadius: 1, bgcolor: round === state.roundB ? '#edf5f2' : '#fff', mb: index < 2 ? 1 : 0 }}>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography fontWeight={800} fontSize={13}>{round}</Typography>
                   <Chip size="small" label={index === 2 ? sample.status : '已归档'} />
@@ -100,27 +152,126 @@ export default function HistoryPage() {
                 </Typography>
               </Box>
             ))}
-          </Stack>
-        </Box>
+          </Box>
+
+          <Box className="panel" sx={{ p: 1.6 }}>
+            <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+              <PhotoOutlinedIcon color="primary" fontSize="small" />
+              <Typography fontWeight={800}>锁定快照</Typography>
+            </Stack>
+            {snapshots.length === 0 ? (
+              <Typography color="text.secondary" fontSize={12}>尚未生成锁定快照。锁定后快照不可变，解锁后仍可查看。</Typography>
+            ) : (
+              <Stack spacing={1}>
+                {snapshots.map((snapshot) => (
+                  <Box key={snapshot.id} sx={{ p: 1.2, border: '1px solid #e4e1dc', borderRadius: 1 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography fontWeight={800} fontSize={12}>{snapshot.id}</Typography>
+                      <Chip size="small" label={`v${snapshot.version}`} />
+                    </Stack>
+                    <Typography color="text.secondary" fontSize={11} mt={0.4}>
+                      锁定于 {new Date(snapshot.lockedAt).toLocaleString('zh-CN')}
+                    </Typography>
+                    <Typography color="text.secondary" fontSize={11} mt={0.3}>说明：{snapshot.note || '—'}</Typography>
+                    <Button size="small" sx={{ mt: 0.6 }} onClick={() => setViewing(snapshot)}>查看快照</Button>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Box>
+        </Stack>
       </Box>
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>确认锁定 {state.roundB}</DialogTitle>
         <DialogContent>
-          <Typography color="text.secondary" mb={1.5}>锁定后本轮尺寸、批注和采纳方案将变为只读，并生成不可覆盖的审核快照。</Typography>
-          <TextField fullWidth label="锁定说明" defaultValue={`确认 ${state.roundB} 版型与工艺资料完整，可进入下一阶段。`} />
+          <Typography color="text.secondary" mb={1.5}>
+            锁定后本轮尺寸、批注和采纳方案将变为只读，并生成不可覆盖的审核快照。若服务器快照已更新，锁定会被拒绝并要求重新核对。
+          </Typography>
+          <TextField fullWidth label="锁定说明" value={note} onChange={(event) => setNote(event.target.value)} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirmOpen(false)}>取消</Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              dispatch(lockReview())
-              setConfirmOpen(false)
-            }}
-          >
-            确认锁定
-          </Button>
+          <Button variant="contained" onClick={handleConfirmLock}>确认锁定</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={warnOpen} onClose={() => setWarnOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>待处理队列未清空</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 1 }}>
+            当前有 {queuePending} 项批注/决定尚未同步到服务器。离线记录已保存在本机，刷新或断网都不会丢失。
+          </Alert>
+          <Typography color="text.secondary" fontSize={13}>
+            请先联网并点击侧栏「立即同步」，待处理队列清空后再锁定，以免锁定基于过期快照。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWarnOpen(false)}>知道了</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(viewing)} onClose={() => setViewing(null)} fullWidth maxWidth="md">
+        <DialogTitle>
+          快照 {viewing?.id} · v{viewing?.version}
+          <Typography color="text.secondary" fontSize={12} mt={0.3}>
+            锁定于 {viewing ? new Date(viewing.lockedAt).toLocaleString('zh-CN') : ''} · 只读不可变
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          {viewing && (
+            <Stack spacing={1.5}>
+              <Box>
+                <Typography fontWeight={800} fontSize={13} mb={0.6}>尺寸实测（{state.roundB}）</Typography>
+                <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <Box component="thead">
+                    <Box component="tr" sx={{ bgcolor: '#f6f5f2' }}>
+                      {['部位', '规格', '实测', '判定'].map((h) => (
+                        <Box component="th" key={h} sx={{ textAlign: 'left', p: 0.6, border: '1px solid #e4e1dc' }}>{h}</Box>
+                      ))}
+                    </Box>
+                  </Box>
+                  <Box component="tbody">
+                    {viewing.data.measurements[state.roundB].map((item) => {
+                      const passed = Math.abs(item.actual - item.spec) <= item.tolerance
+                      return (
+                        <Box component="tr" key={item.key}>
+                          <Box component="td" sx={{ p: 0.6, border: '1px solid #e4e1dc' }}>{item.name}</Box>
+                          <Box component="td" sx={{ p: 0.6, border: '1px solid #e4e1dc' }}>{item.spec}</Box>
+                          <Box component="td" sx={{ p: 0.6, border: '1px solid #e4e1dc' }}>{item.actual.toFixed(1)}</Box>
+                          <Box component="td" sx={{ p: 0.6, border: '1px solid #e4e1dc', color: passed ? '#2d7665' : '#b44b2d' }}>{passed ? '达标' : '超差'}</Box>
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                </Box>
+              </Box>
+              <Box>
+                <Typography fontWeight={800} fontSize={13} mb={0.6}>批注（{viewing.data.annotations.length}）</Typography>
+                {viewing.data.annotations.map((annotation) => (
+                  <Box key={annotation.id} sx={{ p: 0.8, borderLeft: '3px solid #397c69', bgcolor: '#f8f7f4', borderRadius: 1, mb: 0.6 }}>
+                    <Typography fontSize={12} fontWeight={700}>{annotation.part} · {annotation.author}</Typography>
+                    <Typography fontSize={12} color="text.secondary">{annotation.content}</Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box>
+                <Typography fontWeight={800} fontSize={13} mb={0.6}>改版方案（{viewing.data.proposals.length}）</Typography>
+                {viewing.data.proposals.map((proposal) => (
+                  <Box key={proposal.id} sx={{ p: 0.8, border: '1px solid #e4e1dc', borderRadius: 1, mb: 0.6 }}>
+                    <Stack direction="row" justifyContent="space-between">
+                      <Typography fontSize={12} fontWeight={700}>{proposal.affectedPart} · {proposal.role}</Typography>
+                      <Chip size="small" label={proposal.status} />
+                    </Stack>
+                    <Typography fontSize={12} color="text.secondary">{proposal.content}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewing(null)}>关闭</Button>
         </DialogActions>
       </Dialog>
     </Box>
