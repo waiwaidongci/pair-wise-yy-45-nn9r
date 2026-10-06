@@ -1,22 +1,29 @@
 import { Box, Button, Chip, LinearProgress, Stack, Typography } from '@mui/material'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import { useNavigate } from 'react-router-dom'
-import { useAppSelector } from '../app/hooks'
+import { useAppDispatch } from '../app/hooks'
+import { selectSample } from '../features/developmentSlice'
+import { useMergedSamples } from '../app/data'
+import { useSync } from '../app/sync'
 
 export default function OverviewPage() {
-  const samples = useAppSelector((state) => state.development.samples)
+  const samples = useMergedSamples()
+  const dispatch = useAppDispatch()
   const navigate = useNavigate()
+  const sync = useSync()
   const pendingProposals = samples.reduce((sum, item) => sum + item.proposals.filter((proposal) => proposal.status === '待决定').length, 0)
   const pendingAnnotations = samples.reduce((sum, item) => sum + item.annotations.filter((annotation) => annotation.status === '待处理').length, 0)
-  const averagePass = Math.round(
-    (samples.reduce((sum, sample) => {
-      const measurements = sample.measurements['第三轮']
-      const passed = measurements.filter((item) => Math.abs(item.actual - item.spec) <= item.tolerance).length
-      return sum + passed / measurements.length
-    }, 0) /
-      samples.length) *
-      100,
-  )
+  const averagePass = samples.length
+    ? Math.round(
+        (samples.reduce((sum, sample) => {
+          const measurements = sample.measurements['第三轮']
+          const passed = measurements.filter((item) => Math.abs(item.actual - item.spec) <= item.tolerance).length
+          return sum + passed / measurements.length
+        }, 0) /
+          samples.length) *
+          100,
+      )
+    : 0
 
   return (
     <Box className="page">
@@ -24,7 +31,10 @@ export default function OverviewPage() {
         <Box>
           <Typography className="eyebrow">PRODUCT DEVELOPMENT / 产品开发</Typography>
           <Typography component="h1" fontWeight={800}>打样轮次总览</Typography>
-          <Typography color="text.secondary">关注超差、待决方案与审核节奏，所有数据来自本地 MSW 服务。</Typography>
+          <Typography color="text.secondary">
+            {sync.online ? '数据来自服务器' : '离线中：显示本机缓存并叠加待处理队列'} · 同步 {sync.lastSyncAt ?? '—'}
+            {sync.queue.length > 0 && <Chip size="small" color="warning" label={`${sync.queue.length} 项待同步`} sx={{ ml: 1 }} />}
+          </Typography>
         </Box>
         <Button variant="contained" onClick={() => navigate('/review')}>进入样衣评审</Button>
       </Box>
@@ -34,7 +44,7 @@ export default function OverviewPage() {
           ['在开发款式', samples.length, '2 家供应商协同'],
           ['尺寸达标率', `${averagePass}%`, '第三轮综合结果'],
           ['待决定改版', pendingProposals, '需负责人采纳'],
-          ['未关闭批注', pendingAnnotations, '包含尺寸与工艺'],
+          ['未关闭批注', pendingAnnotations, '含本地待同步项'],
         ].map(([label, value, hint]) => (
           <Box className="panel" key={String(label)} sx={{ p: 2 }}>
             <Typography color="#756f69" fontSize={12}>{label}</Typography>
@@ -51,6 +61,7 @@ export default function OverviewPage() {
             <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => navigate('/styles')}>全部档案</Button>
           </Box>
           {samples.map((sample) => {
+            const localPending = sample.annotations.filter((item) => item.id.startsWith('local-')).length
             const pending = sample.proposals.filter((item) => item.status === '待决定').length + sample.annotations.filter((item) => item.status === '待处理').length
             const third = sample.measurements['第三轮']
             const passed = third.filter((item) => Math.abs(item.actual - item.spec) <= item.tolerance).length
@@ -60,6 +71,8 @@ export default function OverviewPage() {
                   <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
                     <Typography fontWeight={800}>{sample.styleCode} · {sample.styleName}</Typography>
                     <Chip size="small" label={sample.status} color={sample.status === '已锁定' ? 'success' : sample.status === '待审核' ? 'warning' : 'default'} />
+                    <Chip size="small" variant="outlined" label={sample.status === '已锁定' ? `快照 ${sample.lockedSnapshotId}` : `v${sample.version ?? '?'}`} />
+                    {localPending > 0 && <Chip size="small" color="warning" label={`${localPending} 条本地待同步`} />}
                   </Stack>
                   <Typography color="text.secondary" fontSize={12} mt={0.8}>{sample.fabric} · {sample.colorway} · 交样 {sample.dueDate}</Typography>
                   <LinearProgress variant="determinate" value={(passed / third.length) * 100} sx={{ mt: 1.5, maxWidth: 380, height: 6, borderRadius: 8 }} />
@@ -71,6 +84,7 @@ export default function OverviewPage() {
                     size="small"
                     sx={{ mt: 0.8 }}
                     onClick={() => {
+                      dispatch(selectSample(sample.id))
                       navigate('/review')
                     }}
                   >
@@ -100,6 +114,16 @@ export default function OverviewPage() {
               </Box>
             ))}
           </Stack>
+          {sync.snapshots.length > 0 && (
+            <Box mt={2}>
+              <Typography fontWeight={800} fontSize={12} color="#5a7a74">审核快照（总览/历史/导出同源）</Typography>
+              {sync.snapshots.slice(0, 3).map((snapshot) => (
+                <Typography key={snapshot.id} fontSize={11} color="text.secondary" mt={0.5} fontFamily="monospace">
+                  {snapshot.id} · {snapshot.round} · {snapshot.checksum}
+                </Typography>
+              ))}
+            </Box>
+          )}
         </Box>
       </Box>
     </Box>

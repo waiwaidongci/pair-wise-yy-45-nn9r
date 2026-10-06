@@ -3,14 +3,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   AppBar,
   Box,
-  Chip,
   Drawer,
   IconButton,
   List,
   ListItemButton,
   ListItemText,
   Toolbar,
-  Tooltip,
   Typography,
 } from '@mui/material'
 import MenuIcon from '@mui/icons-material/Menu'
@@ -19,7 +17,8 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined'
 import CompareArrowsOutlinedIcon from '@mui/icons-material/CompareArrowsOutlined'
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
-import CloudDoneOutlinedIcon from '@mui/icons-material/CloudDoneOutlined'
+import SyncCenter from '../components/SyncCenter'
+import GlobalNotice from '../components/GlobalNotice'
 
 const nav = [
   { to: '/', label: '开发总览', icon: <DashboardOutlinedIcon /> },
@@ -31,7 +30,7 @@ const nav = [
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const drawer = (
-    <Box sx={{ width: 242, minHeight: '100%', bgcolor: '#262a2b', color: '#eef1ef' }}>
+    <Box sx={{ width: 242, minHeight: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#262a2b', color: '#eef1ef' }}>
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.2, borderBottom: '1px solid rgba(255,255,255,.1)' }}>
         <Box sx={{ width: 38, height: 38, display: 'grid', placeItems: 'center', border: '1px solid #74aaa0', borderRadius: 1 }}>
           <CheckroomIcon fontSize="small" />
@@ -41,7 +40,7 @@ export default function Layout() {
           <Typography color="#9aa6a3" fontSize={11}>2026 秋冬 · 女装</Typography>
         </Box>
       </Box>
-      <List sx={{ px: 1.2, py: 2 }}>
+      <List sx={{ px: 1.2, py: 2, flex: 1 }}>
         {nav.map((item) => (
           <ListItemButton
             key={item.to}
@@ -61,13 +60,7 @@ export default function Layout() {
           </ListItemButton>
         ))}
       </List>
-      <Box sx={{ mx: 1.5, mt: 'auto', p: 1.5, border: '1px solid rgba(255,255,255,.1)', borderRadius: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
-          <CloudDoneOutlinedIcon sx={{ fontSize: 16, color: '#74b79d' }} />
-          <Typography fontSize={11}>草稿已实时保存</Typography>
-        </Box>
-        <Typography color="#8f9a98" fontSize={10} mt={0.8}>最后同步 16:42 · 3 位协作者</Typography>
-      </Box>
+      <SyncCenter />
     </Box>
   )
 
@@ -88,6 +81,7 @@ export default function Layout() {
         </Drawer>
       </Box>
       <Box component="main" sx={{ flex: 1, minWidth: 0, pt: { xs: '52px', md: 0 } }}>
+        <GlobalNotice />
         <Outlet />
       </Box>
     </Box>

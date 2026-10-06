@@ -4,6 +4,7 @@ import { Provider } from 'react-redux'
 import { BrowserRouter } from 'react-router-dom'
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
 import { store } from './app/store'
+import { bootstrapSync } from './app/sync'
 import App from './App'
 import './styles.css'
 
@@ -27,6 +28,7 @@ async function enableMocking() {
 }
 
 enableMocking().then(() => {
+  bootstrapSync()
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <Provider store={store}>

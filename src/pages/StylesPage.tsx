@@ -3,11 +3,17 @@ import AddPhotoAlternateOutlinedIcon from '@mui/icons-material/AddPhotoAlternate
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 import { selectSample } from '../features/developmentSlice'
+import { useMergedSamples } from '../app/data'
 
 export default function StylesPage() {
   const dispatch = useAppDispatch()
-  const { samples, selectedId } = useAppSelector((state) => state.development)
+  const samples = useMergedSamples()
+  const selectedId = useAppSelector((state) => state.development.selectedId)
   const selected = samples.find((item) => item.id === selectedId) ?? samples[0]
+
+  if (!selected) {
+    return <Box className="page"><Typography color="text.secondary">正在加载款式档案…（首次进入请等待服务器数据）</Typography></Box>
+  }
 
   return (
     <Box className="page">
@@ -15,7 +21,7 @@ export default function StylesPage() {
         <Box>
           <Typography className="eyebrow">STYLE FILES / 款式档案</Typography>
           <Typography component="h1" fontWeight={800}>规格、物料与样品轮次</Typography>
-          <Typography color="text.secondary">款式档案是批注、尺寸修订和审核记录的单一来源。</Typography>
+          <Typography color="text.secondary">款式档案以服务器版本为底本，叠加本地待同步记录；锁定后所有页面读取同一份快照。</Typography>
         </Box>
         <Button variant="contained" startIcon={<AddPhotoAlternateOutlinedIcon />}>新建款式档案</Button>
       </Box>
@@ -46,9 +52,10 @@ export default function StylesPage() {
             >
               <Typography fontWeight={800} fontSize={13}>{sample.styleCode}</Typography>
               <Typography fontSize={13} mt={0.3}>{sample.styleName}</Typography>
-              <Stack direction="row" spacing={0.6} mt={0.8}>
+              <Stack direction="row" spacing={0.6} mt={0.8} flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={sample.owner} />
-                <Chip size="small" label={sample.status} color={sample.status === '待审核' ? 'warning' : 'default'} />
+                <Chip size="small" label={sample.status} color={sample.status === '待审核' ? 'warning' : sample.status === '已锁定' ? 'success' : 'default'} />
+                <Chip size="small" variant="outlined" label={sample.status === '已锁定' ? '快照锁定' : `v${sample.version ?? '?'}`} />
               </Stack>
             </Button>
           ))}

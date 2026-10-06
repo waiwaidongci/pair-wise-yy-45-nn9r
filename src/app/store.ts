@@ -1,20 +1,39 @@
 import { configureStore } from '@reduxjs/toolkit'
-import { samplingApi } from './api'
 import { developmentReducer } from '../features/developmentSlice'
+import { syncReducer } from '../features/syncSlice'
 
-const persistedKey = 'garment-sampling-draft-v1'
+const syncPersistKey = 'garment-sampling-sync-v2'
+const uiPersistKey = 'garment-sampling-ui-v2'
 
 export const store = configureStore({
   reducer: {
     development: developmentReducer,
-    [samplingApi.reducerPath]: samplingApi.reducer,
+    sync: syncReducer,
   },
-  middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(samplingApi.middleware),
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      serializableCheck: {
+        // 冲突明细与队列条目都是普通 JSON，可安全持久化
+        warnAfter: 100,
+      },
+    }),
 })
 
+let writeScheduled = false
 store.subscribe(() => {
-  const state = store.getState().development
-  localStorage.setItem(persistedKey, JSON.stringify(state))
+  if (writeScheduled) return
+  writeScheduled = true
+  queueMicrotask(() => {
+    writeScheduled = false
+    const state = store.getState()
+    const { queue, samplesCache, snapshots, lastSyncAt, manualOffline } = state.sync
+    localStorage.setItem(
+      syncPersistKey,
+      JSON.stringify({ queue, samplesCache, snapshots, lastSyncAt, manualOffline }),
+    )
+    const { selectedId, roundA, roundB, draftNotes } = state.development
+    localStorage.setItem(uiPersistKey, JSON.stringify({ selectedId, roundA, roundB, draftNotes }))
+  })
 })
 
 export type RootState = ReturnType<typeof store.getState>
